@@ -134,33 +134,6 @@ fn load_css() {
         .links-container {
             margin: 8px 16px 24px 16px;
         }
-        .wipe-button {
-            background: linear-gradient(135deg, #b71c1c 0%, #7f0000 100%);
-            color: white;
-            font-size: 13px;
-            font-weight: bold;
-            padding: 8px 24px;
-            border-radius: 8px;
-            margin-top: 8px;
-            margin-bottom: 4px;
-        }
-        .wipe-button:hover {
-            background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%);
-        }
-        .wipe-dialog-warning {
-            color: #ff8a80;
-            font-size: 13px;
-        }
-        .wipe-confirm-button {
-            background: linear-gradient(135deg, #b71c1c 0%, #7f0000 100%);
-            color: white;
-            font-weight: bold;
-            padding: 8px 24px;
-            border-radius: 8px;
-        }
-        .wipe-confirm-button:hover {
-            background: linear-gradient(135deg, #d32f2f 0%, #b71c1c 100%);
-        }
         "#,
     );
 
@@ -228,55 +201,20 @@ fn build_ui(app: &adw::Application) {
     description.set_max_width_chars(80);
     content.append(&description);
 
-    // Wipe Disk button - for clearing LUKS headers before install
-    let wipe_button = gtk::Button::with_label("⚠ Wipe Disk Signatures ⚠");
-    wipe_button.add_css_class("wipe-button");
-    wipe_button.set_halign(gtk::Align::Center);
-    wipe_button.connect_clicked(|btn| {
-        let parent = btn.root().and_downcast::<gtk::Window>();
-        show_wipe_dialog(parent);
-    });
-    content.append(&wipe_button);
-
-    let wipe_hint = gtk::Label::new(None);
-    wipe_hint.set_markup("<span foreground='White' size='medium'>Old Encryption ? Use this on target drive <b>BEFORE</b> launching Installer.</span>");
-    wipe_hint.set_halign(gtk::Align::Center);
-    content.append(&wipe_hint);
-
-    // Install Buttons - centered, side by side
+    // Install Button - centered
     let buttons_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     buttons_box.set_halign(gtk::Align::Center);
 
-    let online_button = gtk::Button::with_label("Online Install");
-    online_button.add_css_class("install-button");
-    online_button.connect_clicked(|_| {
+    let install_button = gtk::Button::with_label("Launch XeroLinux Installer");
+    install_button.add_css_class("install-button");
+    install_button.connect_clicked(|_| {
         let _ = std::process::Command::new("sh")
-            .args(["-c", "sudo cp /etc/calamares/settings-online.conf /etc/calamares/settings.conf && sudo calamares"])
+            .args(["-c", "sudo xen"])
             .spawn();
     });
-    buttons_box.append(&online_button);
-
-    let offline_button = gtk::Button::with_label("Offline Install");
-    offline_button.add_css_class("install-button");
-    offline_button.connect_clicked(|_| {
-        let _ = std::process::Command::new("sh")
-            .args(["-c", "sudo cp /etc/calamares/settings-offline.conf /etc/calamares/settings.conf && sudo calamares"])
-            .spawn();
-    });
-    buttons_box.append(&offline_button);
+    buttons_box.append(&install_button);
 
     content.append(&buttons_box);
-
-    // Button explainers - stacked, centered, above separator
-    let online_desc = gtk::Label::new(None);
-    online_desc.set_markup("<b><span foreground='#4caf50'>Online Install:</span></b>  <span foreground='white'>Package Selector, up-to-date system. (Longer Install)</span>");
-    online_desc.set_halign(gtk::Align::Center);
-    content.append(&online_desc);
-
-    let offline_desc = gtk::Label::new(None);
-    offline_desc.set_markup("<b><span foreground='#f44336'>Offline Install:</span></b>  <span foreground='white'>No package selection, and outdated system. (Faster Install)</span>");
-    offline_desc.set_halign(gtk::Align::Center);
-    content.append(&offline_desc);
 
     // Separator
     let separator = gtk::Separator::new(gtk::Orientation::Horizontal);
@@ -359,117 +297,6 @@ fn build_ui(app: &adw::Application) {
     window.set_titlebar(Some(&header));
     window.add_css_class("welcome-window");
     window.present();
-}
-
-fn show_wipe_dialog(parent: Option<gtk::Window>) {
-    let output = std::process::Command::new("lsblk")
-        .args(["-d", "-n", "-p", "-o", "NAME,SIZE,MODEL", "--exclude", "7"])
-        .output();
-
-    let disks: Vec<(String, String)> = match output {
-        Ok(out) => String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| {
-                let path = l.split_whitespace().next().unwrap_or("").to_string();
-                (path, l.trim().to_string())
-            })
-            .filter(|(path, _)| !path.is_empty())
-            .collect(),
-        Err(_) => vec![],
-    };
-
-    if disks.is_empty() {
-        return;
-    }
-
-    let dialog = gtk::Window::builder()
-        .title("Wipe Disk Signatures")
-        .default_width(480)
-        .default_height(220)
-        .modal(true)
-        .resizable(false)
-        .build();
-
-    if let Some(ref p) = parent {
-        dialog.set_transient_for(Some(p));
-    }
-
-    let vbox = gtk::Box::new(gtk::Orientation::Vertical, 12);
-    vbox.set_margin_top(24);
-    vbox.set_margin_bottom(24);
-    vbox.set_margin_start(24);
-    vbox.set_margin_end(24);
-
-    let warning = gtk::Label::new(None);
-    warning.set_markup("<b><span foreground='#ff8a80'>⚠ WARNING:</span></b>  <span foreground='white'>This permanently wipes partition signatures and LUKS headers from the selected disk.</span>");
-    warning.set_wrap(true);
-    warning.set_justify(gtk::Justification::Center);
-    vbox.append(&warning);
-
-    let display_names: Vec<&str> = disks.iter().map(|(_, d)| d.as_str()).collect();
-    let dropdown = gtk::DropDown::from_strings(&display_names);
-    vbox.append(&dropdown);
-
-    // Result label (hidden until wipe runs)
-    let result_label = gtk::Label::new(None);
-    result_label.set_halign(gtk::Align::Center);
-    result_label.set_wrap(true);
-    result_label.set_justify(gtk::Justification::Center);
-    result_label.set_visible(false);
-    vbox.append(&result_label);
-
-    let btn_box = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    btn_box.set_halign(gtk::Align::Center);
-    btn_box.set_margin_top(8);
-
-    let cancel_btn = gtk::Button::with_label("Cancel");
-    let wipe_btn = gtk::Button::with_label("Wipe Selected Disk");
-    wipe_btn.add_css_class("wipe-confirm-button");
-
-    btn_box.append(&cancel_btn);
-    btn_box.append(&wipe_btn);
-    vbox.append(&btn_box);
-
-    dialog.set_child(Some(&vbox));
-
-    let dialog_cancel = dialog.clone();
-    cancel_btn.connect_clicked(move |_| {
-        dialog_cancel.close();
-    });
-
-    let dialog_wipe = dialog.clone();
-    let wipe_btn_clone = wipe_btn.clone();
-    wipe_btn.connect_clicked(move |_| {
-        let idx = dropdown.selected() as usize;
-        if idx < disks.len() {
-            let disk_path = disks[idx].0.clone();
-            let status = std::process::Command::new("sudo")
-                .args(["wipefs", "-a", &disk_path])
-                .status();
-
-            result_label.set_visible(true);
-            match status {
-                Ok(s) if s.success() => {
-                    result_label.set_markup(&format!(
-                        "<span foreground='#4caf50' size='large'>\u{2705}</span>  <b><span foreground='#4caf50'>Success!</span></b>  <span foreground='white'>Disk signatures wiped on {disk_path}</span>"
-                    ));
-                    wipe_btn_clone.set_sensitive(false);
-                    cancel_btn.set_label("Close");
-                }
-                _ => {
-                    result_label.set_markup(&format!(
-                        "<span foreground='#f44336' size='large'>\u{274c}</span>  <b><span foreground='#f44336'>Failed!</span></b>  <span foreground='white'>Could not wipe {disk_path} — check sudo/permissions.</span>"
-                    ));
-                }
-            }
-
-            // Resize dialog to fit result
-            dialog_wipe.set_default_size(520, 260);
-        }
-    });
-
-    dialog.present();
 }
 
 fn create_link_button(name: &str, icon_file: &str, url: &str) -> gtk::Button {
